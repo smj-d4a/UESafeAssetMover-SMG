@@ -14,7 +14,9 @@ enum class EMoveStatus : uint8
 	InProgress,
 	Moved,
 	Failed,
-	Skipped
+	Skipped,
+	/** P4에서 다른 사용자가 이미 Checkout 중 — 이동 불가 */
+	LockedByOther
 };
 
 /** 에셋 목록 테이블의 한 행 데이터 */
@@ -45,6 +47,9 @@ struct FAssetMoverEntry
 
 	/** 순환 의존성 경고 여부 */
 	bool bHasCyclicDep = false;
+
+	/** LockedByOther 상태일 때 Checkout 중인 P4 사용자 이름 */
+	FString CheckedOutBy;
 };
 
 /** 의존성 그래프 */
@@ -66,12 +71,6 @@ struct FDependencyGraph
 class SAFEASSETMOVER_API FAssetDependencyAnalyzer
 {
 public:
-	/**
-	 * 소스 폴더를 스캔하여 에셋 목록과 의존성 그래프를 구성합니다.
-	 * @param SourceFolder   스캔할 콘텐츠 폴더 경로 (예: /Game/OldFolder)
-	 * @param OutEntries     분석 결과 에셋 목록
-	 * @param OutGraph       의존성 그래프
-	 */
 	static void AnalyzeFolder(
 		const FString& SourceFolder,
 		TArray<TSharedPtr<FAssetMoverEntry>>& OutEntries,
@@ -80,6 +79,8 @@ public:
 
 	/**
 	 * 단일 에셋의 레퍼런스/디펜던시 카운트를 계산합니다.
+	 * @note 전체 프로젝트 기준 카운트(외부 레퍼런스 포함). 현재 내부에서 호출되지 않으며,
+	 *       외부 도구에서 단독 쿼리 용도로만 사용하십시오.
 	 */
 	static void ComputeCounts(
 		const FName& PackageName,

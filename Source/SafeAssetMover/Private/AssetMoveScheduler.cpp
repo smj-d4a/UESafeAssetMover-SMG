@@ -9,19 +9,16 @@ void FAssetMoveScheduler::ComputeMoveOrder(
 {
 	if (InOutEntries.Num() == 0) return;
 
-	// 패키지명 -> 엔트리 인덱스 맵
 	TMap<FName, int32> PkgToIndex;
 	for (int32 i = 0; i < InOutEntries.Num(); ++i)
 	{
 		PkgToIndex.Add(InOutEntries[i]->AssetData.PackageName, i);
 	}
 
-	// InDegree 계산: 이 에셋이 폴더 내 다른 에셋에 의존하는 수
 	TMap<FName, int32> InDegree;
 	for (const TSharedPtr<FAssetMoverEntry>& Entry : InOutEntries)
 	{
-		const FName PkgName = Entry->AssetData.PackageName;
-		InDegree.FindOrAdd(PkgName) = 0;
+		InDegree.FindOrAdd(Entry->AssetData.PackageName) = 0;
 	}
 
 	for (const TSharedPtr<FAssetMoverEntry>& Entry : InOutEntries)
@@ -39,7 +36,6 @@ void FAssetMoveScheduler::ComputeMoveOrder(
 		}
 	}
 
-	// Kahn's Algorithm (BFS 토폴로지 정렬)
 	TQueue<FName> Queue;
 	for (const auto& Pair : InDegree)
 	{
@@ -51,12 +47,14 @@ void FAssetMoveScheduler::ComputeMoveOrder(
 
 	int32 OrderCounter = 0;
 	TArray<FName> Sorted;
+	TSet<FName>  SortedSet;
 
 	while (!Queue.IsEmpty())
 	{
 		FName Current;
 		Queue.Dequeue(Current);
 		Sorted.Add(Current);
+		SortedSet.Add(Current);
 
 		int32* EntryIdx = PkgToIndex.Find(Current);
 		if (EntryIdx && InOutEntries.IsValidIndex(*EntryIdx))
@@ -64,7 +62,6 @@ void FAssetMoveScheduler::ComputeMoveOrder(
 			InOutEntries[*EntryIdx]->MoveOrder = OrderCounter++;
 		}
 
-		// 이 에셋을 참조하는 폴더 내 에셋의 InDegree 감소
 		if (const TSet<FName>* Refs = Graph.Referencers.Find(Current))
 		{
 			for (const FName& Ref : *Refs)
@@ -81,7 +78,7 @@ void FAssetMoveScheduler::ComputeMoveOrder(
 		}
 	}
 
-	// 순환 의존성이 있는 에셋 처리 (정렬에 포함되지 않은 나머지)
+	// 순환 의존성 처리 (O(1) lookup)
 	if (Sorted.Num() < InOutEntries.Num())
 	{
 		UE_LOG(LogSafeAssetMover, Warning,
@@ -91,7 +88,7 @@ void FAssetMoveScheduler::ComputeMoveOrder(
 		for (TSharedPtr<FAssetMoverEntry>& Entry : InOutEntries)
 		{
 			const FName PkgName = Entry->AssetData.PackageName;
-			if (!Sorted.Contains(PkgName))
+			if (!SortedSet.Contains(PkgName))
 			{
 				Entry->MoveOrder = OrderCounter++;
 				Entry->bHasCyclicDep = true;

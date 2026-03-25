@@ -2,13 +2,15 @@
 
 #include "UI/SAssetTableRow.h"
 #include "Widgets/Text/STextBlock.h"
+#include "Widgets/Text/SInlineEditableTextBlock.h"
 #include "Widgets/Input/SCheckBox.h"
+#include "Widgets/Input/SEditableText.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Images/SImage.h"
 #include "Styling/AppStyle.h"
 #include "AssetThumbnail.h"
-#include "ClassIconFinder.h"
+#include "Styling/SlateIconFinder.h"
 
 #define LOCTEXT_NAMESPACE "SAssetTableRow"
 
@@ -48,8 +50,13 @@ TSharedRef<SWidget> SAssetTableRow::GenerateWidgetForColumn(const FName& ColumnN
 
 	if (ColumnName == SafeAssetMoverColumns::Name)
 	{
-		// 에셋 클래스 아이콘 + 이름
-		const FSlateBrush* AssetIcon = FClassIconFinder::FindIconForAsset(Entry->AssetData);
+		UClass* AssetClass = Entry->AssetData.GetClass();
+		FSlateIcon SlateIcon = FSlateIconFinder::FindIconForClass(AssetClass);
+		const FSlateBrush* AssetIcon = SlateIcon.GetOptionalIcon();
+		if (!AssetIcon)
+		{
+			AssetIcon = FAppStyle::GetBrush("ClassIcon.Default");
+		}
 
 		return SNew(SHorizontalBox)
 			.ToolTipText(FText::FromString(Entry->AssetData.GetObjectPathString()))
@@ -67,11 +74,11 @@ TSharedRef<SWidget> SAssetTableRow::GenerateWidgetForColumn(const FName& ColumnN
 			.VAlign(VAlign_Center)
 			.Padding(4.f, 0.f)
 			[
-				SNew(STextBlock)
+				// SEditableText read-only: 클릭/드래그로 텍스트 선택·복사 가능
+				SNew(SEditableText)
 				.Text(FText::FromName(Entry->AssetData.AssetName))
-				.ColorAndOpacity(Entry->bHasCyclicDep
-					? FSlateColor(FLinearColor(0.9f, 0.5f, 0.1f))  // 순환 의존성: 주황
-					: FSlateColor::UseForeground())
+				.IsReadOnly(true)
+				.ColorAndOpacity(this, &SAssetTableRow::GetEntryNameColor)
 			];
 	}
 
@@ -128,32 +135,89 @@ TSharedRef<SWidget> SAssetTableRow::GenerateWidgetForColumn(const FName& ColumnN
 			.HAlign(HAlign_Center)
 			.VAlign(VAlign_Center)
 			.Padding(4.f, 0.f)
+			.ToolTipText(this, &SAssetTableRow::GetEntryTargetTooltip)
 			[
 				SNew(STextBlock)
-				.Text(GetStatusText(Entry->Status))
-				.ColorAndOpacity(GetStatusColor(Entry->Status))
+				.Text(this, &SAssetTableRow::GetEntryStatusText)
+				.ColorAndOpacity(this, &SAssetTableRow::GetEntryStatusColor)
+			];
+	}
+
+	if (ColumnName == SafeAssetMoverColumns::Target)
+	{
+		return SNew(SBox)
+			.Padding(4.f, 0.f)
+			.VAlign(VAlign_Center)
+			[
+				// SEditableText read-only: 경로 선택·복사 가능
+				SNew(SEditableText)
+				.Text(this, &SAssetTableRow::GetEntryTargetText)
+				.IsReadOnly(true)
+				.ColorAndOpacity(FSlateColor(FLinearColor(0.6f, 0.9f, 0.6f)))
 			];
 	}
 
 	return SNew(STextBlock).Text(LOCTEXT("Unknown", "?"));
 }
 
+// ── 동적 바인딩 구현 ──────────────────────────────────────────────
+
+FText SAssetTableRow::GetEntryStatusText() const
+{
+	return Entry.IsValid() ? GetStatusText(Entry->Status) : FText::GetEmpty();
+}
+
+FSlateColor SAssetTableRow::GetEntryStatusColor() const
+{
+	return Entry.IsValid() ? GetStatusColor(Entry->Status) : FSlateColor::UseForeground();
+}
+
+FText SAssetTableRow::GetEntryTargetText() const
+{
+	if (!Entry.IsValid()) return FText::GetEmpty();
+	return FText::FromString(Entry->TargetPath.IsEmpty() ? TEXT("-") : Entry->TargetPath);
+}
+
+FSlateColor SAssetTableRow::GetEntryNameColor() const
+{
+	if (Entry.IsValid() && Entry->bHasCyclicDep)
+	{
+		return FSlateColor(FLinearColor(0.9f, 0.5f, 0.1f));
+	}
+	return FSlateColor::UseForeground();
+}
+
+FText SAssetTableRow::GetEntryTargetTooltip() const
+{
+	if (!Entry.IsValid()) return FText::GetEmpty();
+	if (Entry->Status == EMoveStatus::LockedByOther && !Entry->CheckedOutBy.IsEmpty())
+	{
+		return FText::Format(
+			LOCTEXT("LockedByTooltip", "P4 Checkout 중인 사용자: {0}"),
+			FText::FromString(Entry->CheckedOutBy));
+	}
+	return FText::GetEmpty();
+}
+
+// ── 정적 유틸 ────────────────────────────────────────────────────
+
 FSlateColor SAssetTableRow::GetCountColor(int32 Count)
 {
-	if (Count <= 2)  return FSlateColor(FLinearColor(0.2f, 0.8f, 0.2f));   // 녹색
-	if (Count <= 9)  return FSlateColor(FLinearColor(0.9f, 0.7f, 0.1f));   // 노란색
-	return FSlateColor(FLinearColor(0.9f, 0.2f, 0.2f));                    // 빨간색
+	if (Count <= 2)  return FSlateColor(FLinearColor(0.2f, 0.8f, 0.2f));
+	if (Count <= 9)  return FSlateColor(FLinearColor(0.9f, 0.7f, 0.1f));
+	return FSlateColor(FLinearColor(0.9f, 0.2f, 0.2f));
 }
 
 FSlateColor SAssetTableRow::GetStatusColor(EMoveStatus Status)
 {
 	switch (Status)
 	{
-	case EMoveStatus::Pending:    return FSlateColor(FLinearColor(0.6f, 0.6f, 0.6f));
-	case EMoveStatus::InProgress: return FSlateColor(FLinearColor(0.3f, 0.7f, 1.0f));
-	case EMoveStatus::Moved:      return FSlateColor(FLinearColor(0.2f, 0.8f, 0.2f));
-	case EMoveStatus::Failed:     return FSlateColor(FLinearColor(0.9f, 0.2f, 0.2f));
-	case EMoveStatus::Skipped:    return FSlateColor(FLinearColor(0.6f, 0.6f, 0.3f));
+	case EMoveStatus::Pending:       return FSlateColor(FLinearColor(0.6f, 0.6f, 0.6f));
+	case EMoveStatus::InProgress:    return FSlateColor(FLinearColor(0.3f, 0.7f, 1.0f));
+	case EMoveStatus::Moved:         return FSlateColor(FLinearColor(0.2f, 0.8f, 0.2f));
+	case EMoveStatus::Failed:        return FSlateColor(FLinearColor(0.9f, 0.2f, 0.2f));
+	case EMoveStatus::Skipped:       return FSlateColor(FLinearColor(0.6f, 0.6f, 0.3f));
+	case EMoveStatus::LockedByOther: return FSlateColor(FLinearColor(0.9f, 0.4f, 0.0f));
 	}
 	return FSlateColor::UseForeground();
 }
@@ -162,11 +226,12 @@ FText SAssetTableRow::GetStatusText(EMoveStatus Status)
 {
 	switch (Status)
 	{
-	case EMoveStatus::Pending:    return LOCTEXT("Pending",    "대기");
-	case EMoveStatus::InProgress: return LOCTEXT("InProgress", "이동 중");
-	case EMoveStatus::Moved:      return LOCTEXT("Moved",      "완료");
-	case EMoveStatus::Failed:     return LOCTEXT("Failed",     "실패");
-	case EMoveStatus::Skipped:    return LOCTEXT("Skipped",    "건너뜀");
+	case EMoveStatus::Pending:       return LOCTEXT("Pending",       "대기");
+	case EMoveStatus::InProgress:    return LOCTEXT("InProgress",    "이동 중");
+	case EMoveStatus::Moved:         return LOCTEXT("Moved",         "완료");
+	case EMoveStatus::Failed:        return LOCTEXT("Failed",        "실패");
+	case EMoveStatus::Skipped:       return LOCTEXT("Skipped",       "건너뜀");
+	case EMoveStatus::LockedByOther: return LOCTEXT("LockedByOther", "P4 잠금");
 	}
 	return LOCTEXT("Unknown", "-");
 }

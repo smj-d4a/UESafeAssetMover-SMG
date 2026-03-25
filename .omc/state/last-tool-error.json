@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"cd \\\"D:/Github/UESafeAssetMover\\\" && git status && git log --oneline -10\"}",
+  "error": "Exit code 128\nfatal: not a git repository (or any of the parent directories): .git",
+  "timestamp": "2026-03-25T07:11:32.994Z",
+  "retry_count": 1
+}

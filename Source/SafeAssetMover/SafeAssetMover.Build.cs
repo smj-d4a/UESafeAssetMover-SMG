@@ -24,7 +24,6 @@ public class SafeAssetMover : ModuleRules
 			"ContentBrowserData",
 			"Slate",
 			"SlateCore",
-			"EditorStyle",
 			"ToolMenus",
 			"InputCore",
 			"EditorWidgets",

@@ -16,11 +16,11 @@ namespace SafeAssetMoverColumns
 	static const FName Deps      = TEXT("Dependencies");
 	static const FName Order     = TEXT("MoveOrder");
 	static const FName Status    = TEXT("Status");
+	static const FName Target    = TEXT("Target");
 }
 
 /**
  * 에셋 목록 테이블의 한 행 위젯
- * 체크박스, 이름, 타입, 레퍼런스 배지, 디펜던시 배지, 이동 순서, 상태를 표시합니다.
  */
 class SAFEASSETMOVER_API SAssetTableRow : public SMultiColumnTableRow<TSharedPtr<FAssetMoverEntry>>
 {
@@ -43,15 +43,16 @@ private:
 	FOnCheckStateChanged OnCheckStateChanged;
 	TAttribute<ECheckBoxState> IsChecked;
 
-	// 수치에 따른 배지 색상 (녹색/노란색/빨간색)
+	// ── TAttribute 동적 바인딩 (Entry 상태 변경 시 자동 갱신) ──
+	FText       GetEntryStatusText()    const;
+	FSlateColor GetEntryStatusColor()   const;
+	FText       GetEntryTargetText()    const;
+	FSlateColor GetEntryNameColor()     const;
+	FText       GetEntryTargetTooltip() const;
+
 	static FSlateColor GetCountColor(int32 Count);
-
-	// 상태에 따른 텍스트 색상
 	static FSlateColor GetStatusColor(EMoveStatus Status);
+	static FText       GetStatusText(EMoveStatus Status);
 
-	// 상태 텍스트
-	static FText GetStatusText(EMoveStatus Status);
-
-	// 수치 배지 위젯 생성
 	TSharedRef<SWidget> MakeCountBadge(int32 Count) const;
 };

@@ -7,6 +7,23 @@
 
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnAssetMoved, const FAssetMoverEntry& /*Entry*/, bool /*bSuccess*/);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnMoveCompleted, int32 /*MovedCount*/);
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnUndoCompleted, int32 /*RestoredCount*/);
+
+/** 단일 에셋 이동의 Undo 데이터 */
+struct FAssetMoveUndoRecord
+{
+	/** 이동 전 패키지 경로 (예: /Game/OldFolder/MyAsset) */
+	FString OriginalPackagePath;
+
+	/** 이동 후 패키지 경로 (예: /Game/NewFolder/MyAsset) */
+	FString MovedPackagePath;
+
+	/** 이동 전 디스크 파일 경로 (.uasset, P4 revert 용) */
+	FString OriginalPackageFilename;
+
+	/** 이동 후 디스크 파일 경로 (.uasset, P4 revert 용) */
+	FString MovedPackageFilename;
+};
 
 /**
  * 에셋 이동 및 리다이렉터 처리를 담당합니다.
@@ -14,52 +31,42 @@ DECLARE_MULTICAST_DELEGATE_OneParam(FOnMoveCompleted, int32 /*MovedCount*/);
  * - IAssetTools::RenameAssets()를 사용하여 이동 (리다이렉터 자동 생성)
  * - FScopedSlowTask로 진행 표시 및 취소 지원
  * - FixupReferencers()로 리다이렉터 제거
+ * - P4 Checkout/LockedByOther 감지 지원
+ * - 마지막 이동 세션 Undo 지원
  */
 class SAFEASSETMOVER_API FAssetMoveExecutor
 {
 public:
-	/** 이동 완료 시 호출 (에셋별) */
-	FOnAssetMoved OnAssetMoved;
-
-	/** 전체 배치 완료 시 호출 */
+	FOnAssetMoved    OnAssetMoved;
 	FOnMoveCompleted OnMoveCompleted;
+	FOnUndoCompleted OnUndoCompleted;
 
-	/**
-	 * 선택된 에셋을 MoveOrder 순서로 이동합니다.
-	 * @param Entries      이동할 에셋 목록 (bSelected == true 인 항목만 처리)
-	 * @param TargetFolder 대상 폴더 경로 (예: /Game/NewFolder)
-	 * @return 성공적으로 이동된 에셋 수
-	 */
 	int32 MoveAssets(
 		TArray<TSharedPtr<FAssetMoverEntry>>& Entries,
 		const FString& TargetFolder
 	);
 
-	/**
-	 * 이전 이동으로 생성된 리다이렉터를 수정합니다.
-	 * @param RedirectorPaths 처리할 리다이렉터 패키지 경로 목록
-	 */
 	void FixUpRedirectors(const TArray<FString>& RedirectorPaths);
 
-	/**
-	 * 폴더 내 모든 리다이렉터를 수집합니다.
-	 * @param FolderPath 검색할 폴더 경로
-	 * @param OutPaths   발견된 리다이렉터 경로 목록
-	 */
 	static void CollectRedirectors(const FString& FolderPath, TArray<FString>& OutPaths);
 
-	/** 진행 중인 이동 작업 취소 요청 */
 	void RequestCancel() { bCancelRequested = true; }
-
-	/** 현재 취소 요청 여부 */
 	bool IsCancelRequested() const { return bCancelRequested; }
+
+	/**
+	 * 마지막 이동 세션을 되돌립니다.
+	 * 이동된 에셋을 원래 경로로 복원하고 P4 Pending 변경을 Revert합니다.
+	 */
+	int32 UndoLastMoveSession();
+
+	bool CanUndo() const { return LastSessionUndoRecords.Num() > 0; }
 
 private:
 	bool bCancelRequested = false;
-	TArray<FString> CreatedRedirectorPaths_Internal;
 
-	bool MoveSingleAsset(
-		FAssetMoverEntry& Entry,
-		const FString& TargetFolder
-	);
+	TArray<FAssetMoveUndoRecord> LastSessionUndoRecords;
+
+	bool MoveSingleAsset(FAssetMoverEntry& Entry);
+
+	void RevertP4PendingChanges(const TArray<FString>& Filenames);
 };

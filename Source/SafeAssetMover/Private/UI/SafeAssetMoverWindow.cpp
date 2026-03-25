@@ -5,14 +5,11 @@
 #include "Framework/Docking/TabManager.h"
 #include "Widgets/Docking/SDockTab.h"
 #include "Styling/AppStyle.h"
-#include "WorkspaceMenuStructure.h"
-#include "WorkspaceMenuStructureModule.h"
 
 #define LOCTEXT_NAMESPACE "FSafeAssetMoverWindow"
 
 const FName FSafeAssetMoverWindow::TabId = FName("SafeAssetMover");
 
-// 소스 폴더를 탭 생성 시 전달하기 위한 임시 저장
 static FString PendingSourceFolder;
 
 void FSafeAssetMoverWindow::Register()
@@ -23,8 +20,7 @@ void FSafeAssetMoverWindow::Register()
 	)
 	.SetDisplayName(LOCTEXT("TabTitle", "Safe Asset Mover"))
 	.SetTooltipText(LOCTEXT("TabTooltip", "의존성 순서로 안전하게 에셋을 이동합니다"))
-	.SetIcon(FSlateIcon(FAppStyle::GetAppStyleSetName(), "ContentBrowser.AssetActions.Move"))
-	.SetGroup(WorkspaceMenu::GetMenuStructure().GetToolsCategory());
+	.SetIcon(FSlateIcon(FAppStyle::GetAppStyleSetName(), "ContentBrowser.AssetActions.Move"));
 }
 
 void FSafeAssetMoverWindow::Unregister()

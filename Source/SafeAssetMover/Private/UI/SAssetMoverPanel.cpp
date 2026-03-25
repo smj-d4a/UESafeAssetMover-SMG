@@ -22,6 +22,7 @@
 #include "IContentBrowserSingleton.h"
 #include "Editor.h"
 #include "UnrealEdGlobals.h"
+#include "Misc/MessageDialog.h"
 
 #define LOCTEXT_NAMESPACE "SAssetMoverPanel"
 
@@ -32,8 +33,8 @@ void SAssetMoverPanel::Construct(const FArguments& InArgs)
 
 	Executor->OnAssetMoved.AddSP(this, &SAssetMoverPanel::OnAssetMovedCallback);
 	Executor->OnMoveCompleted.AddSP(this, &SAssetMoverPanel::OnMoveCompletedCallback);
+	Executor->OnUndoCompleted.AddSP(this, &SAssetMoverPanel::OnUndoCompletedCallback);
 
-	// 헤더 행 구성
 	TSharedRef<SHeaderRow> HeaderRow = SNew(SHeaderRow);
 	BuildTableColumns(HeaderRow);
 
@@ -126,27 +127,45 @@ void SAssetMoverPanel::Construct(const FArguments& InArgs)
 
 		+ SVerticalBox::Slot()
 		.AutoHeight()
+		[ SNew(SSeparator) ]
+
+		// ── 순환 의존성 경고 배너 ──
+		+ SVerticalBox::Slot()
+		.AutoHeight()
+		.Padding(8.f, 4.f, 8.f, 0.f)
 		[
-			SNew(SSeparator)
+			SAssignNew(CyclicWarningWidget, STextBlock)
+			.Text(this, &SAssetMoverPanel::GetCyclicWarningText)
+			.ColorAndOpacity(FSlateColor(FLinearColor(0.9f, 0.6f, 0.1f)))
+			.Visibility(this, &SAssetMoverPanel::GetCyclicWarningVisibility)
 		]
 
-		// ── 에셋 목록 테이블 ──
+		// ── 에셋 목록 테이블 (가로 스크롤) ──
+		// Name 열을 ManualWidth(200)로 고정하여 총 열 폭이 패널보다 넓으면 가로 스크롤 발생
 		+ SVerticalBox::Slot()
 		.FillHeight(1.f)
 		.Padding(8.f, 4.f)
 		[
-			SAssignNew(AssetListView, SListView<TSharedPtr<FAssetMoverEntry>>)
-			.ListItemsSource(&EntryList)
-			.OnGenerateRow(this, &SAssetMoverPanel::GenerateAssetRow)
-			.HeaderRow(HeaderRow)
-			.SelectionMode(ESelectionMode::None)
+			SNew(SScrollBox)
+			.Orientation(Orient_Horizontal)
+			.ConsumeMouseWheel(EConsumeMouseWheel::Never)
+			+ SScrollBox::Slot()
+			[
+				SNew(SBox)
+				.MinDesiredWidth(810.f)
+				[
+					SAssignNew(AssetListView, SListView<TSharedPtr<FAssetMoverEntry>>)
+					.ListItemsSource(&EntryList)
+					.OnGenerateRow(this, &SAssetMoverPanel::GenerateAssetRow)
+					.HeaderRow(HeaderRow)
+					.SelectionMode(ESelectionMode::None)
+				]
+			]
 		]
 
 		+ SVerticalBox::Slot()
 		.AutoHeight()
-		[
-			SNew(SSeparator)
-		]
+		[ SNew(SSeparator) ]
 
 		// ── 선택 버튼 + 카운트 ──
 		+ SVerticalBox::Slot()
@@ -183,9 +202,7 @@ void SAssetMoverPanel::Construct(const FArguments& InArgs)
 
 		+ SVerticalBox::Slot()
 		.AutoHeight()
-		[
-			SNew(SSeparator)
-		]
+		[ SNew(SSeparator) ]
 
 		// ── 실행 버튼 영역 ──
 		+ SVerticalBox::Slot()
@@ -216,12 +233,24 @@ void SAssetMoverPanel::Construct(const FArguments& InArgs)
 			]
 			+ SHorizontalBox::Slot()
 			.AutoWidth()
+			.Padding(0.f, 0.f, 4.f, 0.f)
 			[
 				SAssignNew(CancelButton, SButton)
 				.Text(LOCTEXT("Cancel", "취소"))
 				.ToolTipText(LOCTEXT("CancelTooltip", "진행 중인 이동 작업을 취소합니다"))
 				.IsEnabled(this, &SAssetMoverPanel::CanCancelMove)
 				.OnClicked(this, &SAssetMoverPanel::OnCancelClicked)
+			]
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			[
+				SAssignNew(UndoButton, SButton)
+				.Text(LOCTEXT("Undo", "↩ 실행 취소"))
+				.ToolTipText(LOCTEXT("UndoTooltip",
+					"마지막 이동 세션을 되돌립니다.\n"
+					"에셋을 원래 경로로 복원하고 P4 Pending 변경을 Revert합니다."))
+				.IsEnabled(this, &SAssetMoverPanel::CanUndo)
+				.OnClicked(this, &SAssetMoverPanel::OnUndoClicked)
 			]
 		]
 
@@ -259,7 +288,6 @@ void SAssetMoverPanel::Construct(const FArguments& InArgs)
 		]
 	];
 
-	// 초기 소스 폴더가 있으면 자동 스캔
 	if (!SourceFolder.IsEmpty())
 	{
 		OnScanClicked();
@@ -272,6 +300,7 @@ SAssetMoverPanel::~SAssetMoverPanel()
 	{
 		Executor->OnAssetMoved.RemoveAll(this);
 		Executor->OnMoveCompleted.RemoveAll(this);
+		Executor->OnUndoCompleted.RemoveAll(this);
 	}
 }
 
@@ -284,7 +313,7 @@ void SAssetMoverPanel::SetSourceFolder(const FString& Folder)
 	}
 }
 
-// ────────────── 이벤트 핸들러 ──────────────
+// ── 이벤트 핸들러 ──────────────────────────────────────────────
 
 FReply SAssetMoverPanel::OnScanClicked()
 {
@@ -298,7 +327,7 @@ FReply SAssetMoverPanel::OnScanClicked()
 	FAssetDependencyAnalyzer::AnalyzeFolder(SourceFolder, EntryList, DependencyGraph);
 	FAssetMoveScheduler::ComputeMoveOrder(EntryList, DependencyGraph);
 	SortEntries();
-
+	RecalculateTargetPaths();
 	RefreshList();
 
 	UE_LOG(LogSafeAssetMover, Log, TEXT("Scan complete: %d assets found."), EntryList.Num());
@@ -313,6 +342,18 @@ FReply SAssetMoverPanel::OnMoveSelectedClicked()
 		return FReply::Handled();
 	}
 
+	const int32 SelCount = GetSelectedCount();
+	const FText ConfirmMsg = FText::Format(
+		LOCTEXT("MoveConfirm", "선택된 {0}개 에셋을 {1} 로 이동합니다.\n계속하시겠습니까?"),
+		FText::AsNumber(SelCount),
+		FText::FromString(TargetFolder)
+	);
+	if (FMessageDialog::Open(EAppMsgType::OkCancel, ConfirmMsg) != EAppReturnType::Ok)
+	{
+		return FReply::Handled();
+	}
+
+	TotalToMove = SelCount;
 	bIsMoving = true;
 	ProgressValue = 0.f;
 
@@ -322,14 +363,12 @@ FReply SAssetMoverPanel::OnMoveSelectedClicked()
 
 FReply SAssetMoverPanel::OnFixUpRedirectorsClicked()
 {
-	// 소스/대상 폴더 양쪽에서 리다이렉터 수집
 	TArray<FString> AllRedirectors = CreatedRedirectorPaths;
 
 	TArray<FString> SourceRedirectors;
 	FAssetMoveExecutor::CollectRedirectors(SourceFolder, SourceRedirectors);
 	AllRedirectors.Append(SourceRedirectors);
 
-	// 중복 제거
 	TSet<FString> UniqueSet(AllRedirectors);
 	AllRedirectors = UniqueSet.Array();
 
@@ -337,6 +376,7 @@ FReply SAssetMoverPanel::OnFixUpRedirectorsClicked()
 
 	CreatedRedirectorPaths.Empty();
 	PendingRedirectorCount = 0;
+	RefreshList();
 	return FReply::Handled();
 }
 
@@ -346,6 +386,24 @@ FReply SAssetMoverPanel::OnCancelClicked()
 	{
 		Executor->RequestCancel();
 	}
+	return FReply::Handled();
+}
+
+FReply SAssetMoverPanel::OnUndoClicked()
+{
+	if (!Executor.IsValid() || !Executor->CanUndo()) return FReply::Handled();
+
+	const FText ConfirmMsg = LOCTEXT("UndoConfirm",
+		"마지막 이동 세션을 되돌립니다.\n"
+		"에셋이 원래 경로로 복원되고, P4 Pending 변경이 Revert됩니다.\n"
+		"계속하시겠습니까?");
+
+	if (FMessageDialog::Open(EAppMsgType::OkCancel, ConfirmMsg) != EAppReturnType::Ok)
+	{
+		return FReply::Handled();
+	}
+
+	Executor->UndoLastMoveSession();
 	return FReply::Handled();
 }
 
@@ -374,25 +432,22 @@ FReply SAssetMoverPanel::OnBrowseSourceClicked()
 	FContentBrowserModule& CBModule =
 		FModuleManager::LoadModuleChecked<FContentBrowserModule>("ContentBrowser");
 
-	FOpenAssetDialogConfig DialogConfig;
-	DialogConfig.bAllowMultipleSelection = false;
-	DialogConfig.DefaultPath = SourceFolder.IsEmpty() ? TEXT("/Game") : SourceFolder;
-
-	// 폴더 선택 다이얼로그 (간단히 텍스트 입력 활용)
-	// 실제 폴더 선택은 콘텐츠 브라우저 API가 제한적이므로 PathPicker 사용
 	TSharedRef<SWindow> PickerWindow = SNew(SWindow)
 		.Title(LOCTEXT("PickSourceFolder", "소스 폴더 선택"))
 		.SizingRule(ESizingRule::UserSized)
 		.ClientSize(FVector2D(400.f, 500.f));
 
-	TSharedPtr<FString> SelectedPath = MakeShared<FString>(SourceFolder);
+	TSharedPtr<FString> SelectedPath = MakeShared<FString>(TEXT(""));
+	TSharedPtr<FString> PickerCurrentPath = MakeShared<FString>(
+		SourceFolder.IsEmpty() ? TEXT("/Game") : SourceFolder
+	);
 
 	FPathPickerConfig PathConfig;
 	PathConfig.DefaultPath = SourceFolder.IsEmpty() ? TEXT("/Game") : SourceFolder;
 	PathConfig.OnPathSelected = FOnPathSelected::CreateLambda(
-		[this, &PickerWindow, SelectedPath](const FString& Path)
+		[PickerCurrentPath](const FString& Path)
 		{
-			*SelectedPath = Path;
+			*PickerCurrentPath = Path;
 		}
 	);
 
@@ -413,8 +468,9 @@ FReply SAssetMoverPanel::OnBrowseSourceClicked()
 			SNew(SButton)
 			.Text(LOCTEXT("Select", "선택"))
 			.ButtonStyle(FAppStyle::Get(), "PrimaryButton")
-			.OnClicked(FOnClicked::CreateLambda([&PickerWindow]()
+			.OnClicked(FOnClicked::CreateLambda([&PickerWindow, SelectedPath, PickerCurrentPath]()
 			{
+				*SelectedPath = *PickerCurrentPath;
 				PickerWindow->RequestDestroyWindow();
 				return FReply::Handled();
 			}))
@@ -442,14 +498,17 @@ FReply SAssetMoverPanel::OnBrowseTargetClicked()
 		.SizingRule(ESizingRule::UserSized)
 		.ClientSize(FVector2D(400.f, 500.f));
 
-	TSharedPtr<FString> SelectedPath = MakeShared<FString>(TargetFolder);
+	TSharedPtr<FString> SelectedPath = MakeShared<FString>(TEXT(""));
+	TSharedPtr<FString> PickerCurrentPath = MakeShared<FString>(
+		TargetFolder.IsEmpty() ? TEXT("/Game") : TargetFolder
+	);
 
 	FPathPickerConfig PathConfig;
 	PathConfig.DefaultPath = TargetFolder.IsEmpty() ? TEXT("/Game") : TargetFolder;
 	PathConfig.OnPathSelected = FOnPathSelected::CreateLambda(
-		[SelectedPath](const FString& Path)
+		[PickerCurrentPath](const FString& Path)
 		{
-			*SelectedPath = Path;
+			*PickerCurrentPath = Path;
 		}
 	);
 
@@ -470,8 +529,9 @@ FReply SAssetMoverPanel::OnBrowseTargetClicked()
 			SNew(SButton)
 			.Text(LOCTEXT("Select", "선택"))
 			.ButtonStyle(FAppStyle::Get(), "PrimaryButton")
-			.OnClicked(FOnClicked::CreateLambda([&PickerWindow]()
+			.OnClicked(FOnClicked::CreateLambda([&PickerWindow, SelectedPath, PickerCurrentPath]()
 			{
+				*SelectedPath = *PickerCurrentPath;
 				PickerWindow->RequestDestroyWindow();
 				return FReply::Handled();
 			}))
@@ -495,7 +555,7 @@ void SAssetMoverPanel::OnSortColumnChanged(
 	EColumnSortMode::Type Mode)
 {
 	SortColumn = Column;
-	SortMode = Mode;
+	SortMode   = Mode;
 	SortEntries();
 	RefreshList();
 }
@@ -513,6 +573,8 @@ void SAssetMoverPanel::OnSourceFolderTextChanged(const FText& Text)
 void SAssetMoverPanel::OnTargetFolderTextChanged(const FText& Text)
 {
 	TargetFolder = Text.ToString();
+	RecalculateTargetPaths();
+	RefreshList();
 }
 
 void SAssetMoverPanel::OnAssetCheckboxChanged(ECheckBoxState NewState, TSharedPtr<FAssetMoverEntry> Entry)
@@ -530,7 +592,7 @@ ECheckBoxState SAssetMoverPanel::GetAssetCheckboxState(TSharedPtr<FAssetMoverEnt
 		: ECheckBoxState::Unchecked;
 }
 
-// ────────────── 쿼리 함수 ──────────────
+// ── 쿼리 ────────────────────────────────────────────────────────
 
 bool SAssetMoverPanel::CanMoveSelected() const
 {
@@ -548,12 +610,27 @@ bool SAssetMoverPanel::CanCancelMove() const
 	return bIsMoving;
 }
 
+bool SAssetMoverPanel::CanUndo() const
+{
+	return !bIsMoving && Executor.IsValid() && Executor->CanUndo();
+}
+
 int32 SAssetMoverPanel::GetSelectedCount() const
 {
 	int32 Count = 0;
 	for (const TSharedPtr<FAssetMoverEntry>& Entry : EntryList)
 	{
 		if (Entry->bSelected) ++Count;
+	}
+	return Count;
+}
+
+int32 SAssetMoverPanel::GetCyclicDepCount() const
+{
+	int32 Count = 0;
+	for (const TSharedPtr<FAssetMoverEntry>& Entry : EntryList)
+	{
+		if (Entry->bHasCyclicDep) ++Count;
 	}
 	return Count;
 }
@@ -574,10 +651,7 @@ FText SAssetMoverPanel::GetStatusText() const
 FText SAssetMoverPanel::GetMoveButtonText() const
 {
 	int32 SelCount = GetSelectedCount();
-	if (SelCount == 0)
-	{
-		return LOCTEXT("MoveSelected", "이동");
-	}
+	if (SelCount == 0) return LOCTEXT("MoveSelected", "이동");
 	return FText::Format(LOCTEXT("MoveCount", "▶ {0}개 이동"), FText::AsNumber(SelCount));
 }
 
@@ -617,13 +691,26 @@ FText SAssetMoverPanel::GetProgressText() const
 	return ProgressText;
 }
 
-// ────────────── 내부 유틸 ──────────────
+FText SAssetMoverPanel::GetCyclicWarningText() const
+{
+	return FText::Format(
+		LOCTEXT("CyclicWarning", "⚠ {0}개 에셋에서 순환 의존성이 감지되었습니다. 마지막에 이동됩니다."),
+		FText::AsNumber(GetCyclicDepCount())
+	);
+}
+
+EVisibility SAssetMoverPanel::GetCyclicWarningVisibility() const
+{
+	return GetCyclicDepCount() > 0 ? EVisibility::Visible : EVisibility::Collapsed;
+}
+
+// ── 내부 유틸 ────────────────────────────────────────────────────
 
 void SAssetMoverPanel::RefreshList()
 {
 	if (AssetListView.IsValid())
 	{
-		AssetListView->RequestListRefresh();
+		AssetListView->RebuildList();
 	}
 }
 
@@ -652,11 +739,39 @@ void SAssetMoverPanel::SortEntries()
 			return bAsc ? TA < TB : TA > TB;
 		}
 
-		// 기본: 이름 정렬
 		FString NA = A->AssetData.AssetName.ToString();
 		FString NB = B->AssetData.AssetName.ToString();
 		return bAsc ? NA < NB : NA > NB;
 	});
+}
+
+void SAssetMoverPanel::RecalculateTargetPaths()
+{
+	if (TargetFolder.IsEmpty() || SourceFolder.IsEmpty()) return;
+
+	for (TSharedPtr<FAssetMoverEntry>& Entry : EntryList)
+	{
+		const FString PackagePath = Entry->AssetData.PackageName.ToString();
+		FString RelPath;
+		if (PackagePath.StartsWith(SourceFolder))
+		{
+			RelPath = PackagePath.RightChop(SourceFolder.Len());
+			if (RelPath.StartsWith(TEXT("/")))
+			{
+				RelPath.RightChopInline(1);
+			}
+		}
+		const FString SubFolder = FPaths::GetPath(RelPath);
+		const FString AssetName = Entry->AssetData.AssetName.ToString();
+		if (SubFolder.IsEmpty())
+		{
+			Entry->TargetPath = TargetFolder / AssetName;
+		}
+		else
+		{
+			Entry->TargetPath = TargetFolder / SubFolder / AssetName;
+		}
+	}
 }
 
 void SAssetMoverPanel::BuildTableColumns(TSharedRef<SHeaderRow>& OutHeaderRow)
@@ -667,10 +782,11 @@ void SAssetMoverPanel::BuildTableColumns(TSharedRef<SHeaderRow>& OutHeaderRow)
 		.FixedWidth(30.f)
 	);
 
+	// ManualWidth: 사용자 리사이즈 가능, FillWidth 제거로 가로 스크롤 정상 작동
 	OutHeaderRow->AddColumn(
 		SHeaderRow::Column(SafeAssetMoverColumns::Name)
 		.DefaultLabel(LOCTEXT("ColName", "이름"))
-		.FillWidth(3.f)
+		.ManualWidth(200.f)
 		.SortMode(this, &SAssetMoverPanel::GetColumnSortMode, SafeAssetMoverColumns::Name)
 		.OnSort(this, &SAssetMoverPanel::OnSortColumnChanged)
 	);
@@ -678,7 +794,7 @@ void SAssetMoverPanel::BuildTableColumns(TSharedRef<SHeaderRow>& OutHeaderRow)
 	OutHeaderRow->AddColumn(
 		SHeaderRow::Column(SafeAssetMoverColumns::Type)
 		.DefaultLabel(LOCTEXT("ColType", "타입"))
-		.FillWidth(1.5f)
+		.ManualWidth(120.f)
 		.SortMode(this, &SAssetMoverPanel::GetColumnSortMode, SafeAssetMoverColumns::Type)
 		.OnSort(this, &SAssetMoverPanel::OnSortColumnChanged)
 	);
@@ -720,6 +836,14 @@ void SAssetMoverPanel::BuildTableColumns(TSharedRef<SHeaderRow>& OutHeaderRow)
 		.HAlignCell(HAlign_Center)
 		.HAlignHeader(HAlign_Center)
 	);
+
+	OutHeaderRow->AddColumn(
+		SHeaderRow::Column(SafeAssetMoverColumns::Target)
+		.DefaultLabel(LOCTEXT("ColTarget", "대상 경로"))
+		.ManualWidth(150.f)
+		.HAlignCell(HAlign_Left)
+		.HAlignHeader(HAlign_Left)
+	);
 }
 
 TSharedRef<ITableRow> SAssetMoverPanel::GenerateAssetRow(
@@ -734,15 +858,12 @@ TSharedRef<ITableRow> SAssetMoverPanel::GenerateAssetRow(
 
 void SAssetMoverPanel::OnAssetMovedCallback(const FAssetMoverEntry& Entry, bool bSuccess)
 {
-	// 이동된 에셋의 리다이렉터 경로 추적
 	if (bSuccess)
 	{
-		// 소스 경로에 생성된 리다이렉터 추적
 		CreatedRedirectorPaths.AddUnique(Entry.SourcePath);
 		PendingRedirectorCount = CreatedRedirectorPaths.Num();
 	}
 
-	// 진행률 업데이트
 	int32 ProcessedCount = 0;
 	for (const TSharedPtr<FAssetMoverEntry>& E : EntryList)
 	{
@@ -751,16 +872,16 @@ void SAssetMoverPanel::OnAssetMovedCallback(const FAssetMoverEntry& Entry, bool 
 			++ProcessedCount;
 		}
 	}
-	int32 TotalSelected = GetSelectedCount() + ProcessedCount;
-	if (TotalSelected > 0)
+
+	if (TotalToMove > 0)
 	{
-		ProgressValue = static_cast<float>(ProcessedCount) / static_cast<float>(TotalSelected);
+		ProgressValue = static_cast<float>(ProcessedCount) / static_cast<float>(TotalToMove);
 	}
 	ProgressText = FText::Format(
 		LOCTEXT("ProgressFmt", "{0} ({1}/{2})"),
 		FText::FromName(Entry.AssetData.AssetName),
 		FText::AsNumber(ProcessedCount),
-		FText::AsNumber(TotalSelected)
+		FText::AsNumber(TotalToMove)
 	);
 
 	RefreshList();
@@ -775,7 +896,6 @@ void SAssetMoverPanel::OnMoveCompletedCallback(int32 MovedCount)
 		FText::AsNumber(MovedCount)
 	);
 
-	// 리다이렉터 수 업데이트
 	TArray<FString> FoundRedirectors;
 	FAssetMoveExecutor::CollectRedirectors(SourceFolder, FoundRedirectors);
 	PendingRedirectorCount = FoundRedirectors.Num();
@@ -785,6 +905,34 @@ void SAssetMoverPanel::OnMoveCompletedCallback(int32 MovedCount)
 	UE_LOG(LogSafeAssetMover, Log,
 		TEXT("Move completed. %d assets moved. %d redirectors pending."),
 		MovedCount, PendingRedirectorCount);
+}
+
+void SAssetMoverPanel::OnUndoCompletedCallback(int32 RestoredCount)
+{
+	for (TSharedPtr<FAssetMoverEntry>& Entry : EntryList)
+	{
+		if (Entry->Status == EMoveStatus::Moved
+			|| Entry->Status == EMoveStatus::Failed
+			|| Entry->Status == EMoveStatus::LockedByOther)
+		{
+			Entry->Status    = EMoveStatus::Pending;
+			Entry->bSelected = true;
+		}
+	}
+
+	CreatedRedirectorPaths.Empty();
+	PendingRedirectorCount = 0;
+
+	ProgressValue = 0.f;
+	ProgressText  = FText::Format(
+		LOCTEXT("UndoComplete", "실행 취소 완료: {0}개 에셋 복원됨"),
+		FText::AsNumber(RestoredCount)
+	);
+
+	RefreshList();
+
+	UE_LOG(LogSafeAssetMover, Log,
+		TEXT("Undo completed. %d assets restored."), RestoredCount);
 }
 
 #undef LOCTEXT_NAMESPACE
