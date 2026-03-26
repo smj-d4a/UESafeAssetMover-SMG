@@ -115,8 +115,9 @@ bool FAssetMoveExecutor::MoveSingleAsset(FAssetMoverEntry& Entry)
 				FString LockedBy;
 				if (State->IsCheckedOutOther(&LockedBy))
 				{
-					Entry.CheckedOutBy = LockedBy;
-					Entry.Status = EMoveStatus::LockedByOther;
+					Entry.CheckedOutBy  = LockedBy;
+					Entry.FailureReason = FString::Printf(TEXT("P4 잠금: %s"), *LockedBy);
+					Entry.Status        = EMoveStatus::LockedByOther;
 					UE_LOG(LogSafeAssetMover, Warning,
 						TEXT("[SafeAssetMover] '%s' 이동 불가 — P4에서 '%s'이(가) Checkout 중입니다. "
 							 "해당 사용자에게 파일 잠금 해제를 요청하세요."),
@@ -154,6 +155,7 @@ bool FAssetMoveExecutor::MoveSingleAsset(FAssetMoverEntry& Entry)
 	UObject* Asset = Entry.AssetData.GetAsset();
 	if (!Asset)
 	{
+		Entry.FailureReason = TEXT("에셋 로드 실패");
 		UE_LOG(LogSafeAssetMover, Warning,
 			TEXT("Could not load asset: %s"), *Entry.AssetData.GetObjectPathString());
 		return false;
@@ -169,6 +171,10 @@ bool FAssetMoveExecutor::MoveSingleAsset(FAssetMoverEntry& Entry)
 	RenameData.Add(FAssetRenameData(Asset, TargetPackageFolder, AssetName));
 
 	const bool bMoved = AssetTools.RenameAssets(RenameData);
+	if (!bMoved)
+	{
+		Entry.FailureReason = TEXT("이동 실패");
+	}
 	if (bMoved)
 	{
 		FAssetMoveUndoRecord UndoRec;

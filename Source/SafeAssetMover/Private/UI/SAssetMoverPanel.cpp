@@ -5,6 +5,10 @@
 #include "AssetDependencyAnalyzer.h"
 #include "AssetMoveScheduler.h"
 #include "AssetMoveExecutor.h"
+#include "AssetCSVManager.h"
+#include "AssetWorkloadDistributor.h"
+#include "DesktopPlatformModule.h"
+#include "IDesktopPlatform.h"
 
 #include "Widgets/Text/STextBlock.h"
 #include "Widgets/Input/SButton.h"
@@ -129,6 +133,101 @@ void SAssetMoverPanel::Construct(const FArguments& InArgs)
 		.AutoHeight()
 		[ SNew(SSeparator) ]
 
+		// ── CSV / 담당자 배정 도구 ──
+		+ SVerticalBox::Slot()
+		.AutoHeight()
+		.Padding(8.f, 4.f, 8.f, 4.f)
+		[
+			SNew(SHorizontalBox)
+
+			// 작업자 수 레이블
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Center)
+			.Padding(0.f, 0.f, 4.f, 0.f)
+			[
+				SNew(STextBlock)
+				.Text(LOCTEXT("MaxWorkers", "작업자 수:"))
+			]
+			// 작업자 수 입력
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.Padding(0.f, 0.f, 8.f, 0.f)
+			[
+				SAssignNew(MaxWorkerCountBox, SEditableTextBox)
+				.Text(FText::AsNumber(MaxWorkerCount))
+				.MinDesiredWidth(36.f)
+				.OnTextCommitted(this, &SAssetMoverPanel::OnMaxWorkerCountCommitted)
+			]
+
+			// 내 번호 레이블
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Center)
+			.Padding(0.f, 0.f, 4.f, 0.f)
+			[
+				SNew(STextBlock)
+				.Text(LOCTEXT("MyWorkerNum", "내 번호:"))
+			]
+			// 내 번호 입력
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.Padding(0.f, 0.f, 8.f, 0.f)
+			[
+				SAssignNew(MyAssigneeIndexBox, SEditableTextBox)
+				.Text(FText::AsNumber(MyAssigneeIndex + 1))
+				.MinDesiredWidth(36.f)
+				.OnTextCommitted(this, &SAssetMoverPanel::OnMyAssigneeIndexCommitted)
+			]
+
+			// 담당자 배정 버튼
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.Padding(0.f, 0.f, 4.f, 0.f)
+			[
+				SNew(SButton)
+				.Text(LOCTEXT("AssignWorkers", "담당자 배정"))
+				.ToolTipText(LOCTEXT("AssignTooltip",
+					"섬(연결 컴포넌트) 단위로 작업량을 분석하여\n"
+					"각 작업자에게 균등하게 에셋을 배정합니다."))
+				.IsEnabled(this, &SAssetMoverPanel::CanAssignWorkers)
+				.OnClicked(this, &SAssetMoverPanel::OnAssignWorkersClicked)
+			]
+
+			// 스페이서
+			+ SHorizontalBox::Slot()
+			.FillWidth(1.f)
+
+			// CSV 내보내기
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.Padding(0.f, 0.f, 4.f, 0.f)
+			[
+				SNew(SButton)
+				.Text(LOCTEXT("ExportCSV", "CSV 내보내기"))
+				.ToolTipText(LOCTEXT("ExportCSVTooltip",
+					"현재 에셋 목록 (담당자 배정 포함)을 CSV 파일로 저장합니다."))
+				.IsEnabled(this, &SAssetMoverPanel::CanExportCSV)
+				.OnClicked(this, &SAssetMoverPanel::OnExportCSVClicked)
+			]
+
+			// CSV 가져오기
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			[
+				SNew(SButton)
+				.Text(LOCTEXT("ImportCSV", "CSV 가져오기"))
+				.ToolTipText(LOCTEXT("ImportCSVTooltip",
+					"CSV 파일에서 대상 경로와 담당자 배정을 가져옵니다.\n"
+					"스캔 후 불러오면 TargetPath와 AssigneeIndex를 덮어씁니다."))
+				.OnClicked(this, &SAssetMoverPanel::OnImportCSVClicked)
+			]
+		]
+
+		+ SVerticalBox::Slot()
+		.AutoHeight()
+		[ SNew(SSeparator) ]
+
 		// ── 순환 의존성 경고 배너 ──
 		+ SVerticalBox::Slot()
 		.AutoHeight()
@@ -141,7 +240,8 @@ void SAssetMoverPanel::Construct(const FArguments& InArgs)
 		]
 
 		// ── 에셋 목록 테이블 (가로 스크롤) ──
-		// Name 열을 ManualWidth(200)로 고정하여 총 열 폭이 패널보다 넓으면 가로 스크롤 발생
+		// Name 열 FillWidth → 창 크기에 맞게 늘어남
+		// MinDesiredWidth → 스캔 후 최장 Target 경로 기반으로 동적 계산되어 SBox에 반영
 		+ SVerticalBox::Slot()
 		.FillHeight(1.f)
 		.Padding(8.f, 4.f)
@@ -151,8 +251,8 @@ void SAssetMoverPanel::Construct(const FArguments& InArgs)
 			.ConsumeMouseWheel(EConsumeMouseWheel::Never)
 			+ SScrollBox::Slot()
 			[
-				SNew(SBox)
-				.MinDesiredWidth(810.f)
+				SAssignNew(TableConstraintBox, SBox)
+				.MinDesiredWidth(ComputedTableMinWidth)
 				[
 					SAssignNew(AssetListView, SListView<TSharedPtr<FAssetMoverEntry>>)
 					.ListItemsSource(&EntryList)
@@ -220,6 +320,18 @@ void SAssetMoverPanel::Construct(const FArguments& InArgs)
 				.ToolTipText(LOCTEXT("MoveTooltip", "선택된 에셋을 의존성 순서로 이동합니다"))
 				.IsEnabled(this, &SAssetMoverPanel::CanMoveSelected)
 				.OnClicked(this, &SAssetMoverPanel::OnMoveSelectedClicked)
+			]
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.Padding(0.f, 0.f, 4.f, 0.f)
+			[
+				SAssignNew(P4SubmitConfirmButton, SButton)
+				.Text(this, &SAssetMoverPanel::GetP4SubmitConfirmButtonText)
+				.ToolTipText(LOCTEXT("P4SubmitConfirmTooltip",
+					"P4 Submit을 완료한 뒤 이 버튼을 눌러 Fix Up Redirectors를 활성화합니다.\n"
+					"Submit 전에 Fix Up을 실행하면 Pending 변경목록의 파일을 Checkout하려다 실패합니다."))
+				.IsEnabled(this, &SAssetMoverPanel::CanConfirmP4Submit)
+				.OnClicked(this, &SAssetMoverPanel::OnP4SubmitConfirmClicked)
 			]
 			+ SHorizontalBox::Slot()
 			.AutoWidth()
@@ -323,6 +435,8 @@ FReply SAssetMoverPanel::OnScanClicked()
 	DependencyGraph = FDependencyGraph();
 	CreatedRedirectorPaths.Empty();
 	PendingRedirectorCount = 0;
+	bP4SubmitConfirmed = false;
+	bAssignmentDone = false;
 
 	FAssetDependencyAnalyzer::AnalyzeFolder(SourceFolder, EntryList, DependencyGraph);
 	FAssetMoveScheduler::ComputeMoveOrder(EntryList, DependencyGraph);
@@ -355,6 +469,7 @@ FReply SAssetMoverPanel::OnMoveSelectedClicked()
 
 	TotalToMove = SelCount;
 	bIsMoving = true;
+	bP4SubmitConfirmed = false;
 	ProgressValue = 0.f;
 
 	Executor->MoveAssets(EntryList, TargetFolder);
@@ -387,6 +502,127 @@ FReply SAssetMoverPanel::OnCancelClicked()
 		Executor->RequestCancel();
 	}
 	return FReply::Handled();
+}
+
+FReply SAssetMoverPanel::OnP4SubmitConfirmClicked()
+{
+	bP4SubmitConfirmed = true;
+	return FReply::Handled();
+}
+
+FReply SAssetMoverPanel::OnAssignWorkersClicked()
+{
+	if (EntryList.Num() == 0 || MaxWorkerCount <= 0) return FReply::Handled();
+
+	FAssetWorkloadDistributor::AssignWorkers(EntryList, DependencyGraph, MaxWorkerCount);
+	bAssignmentDone = true;
+
+	// 내 담당이 아닌 항목은 선택 해제
+	for (TSharedPtr<FAssetMoverEntry>& Entry : EntryList)
+	{
+		if (!IsEntryAssignedToMe(Entry))
+		{
+			Entry->bSelected = false;
+		}
+	}
+
+	RefreshList();
+	return FReply::Handled();
+}
+
+FReply SAssetMoverPanel::OnExportCSVClicked()
+{
+	IDesktopPlatform* DesktopPlatform = FDesktopPlatformModule::Get();
+	if (!DesktopPlatform) return FReply::Handled();
+
+	TArray<FString> OutFiles;
+	const void* ParentWindow = FSlateApplication::Get().FindBestParentWindowHandleForDialogs(nullptr);
+
+	DesktopPlatform->SaveFileDialog(
+		ParentWindow,
+		TEXT("CSV 파일 저장"),
+		FPaths::ProjectDir(),
+		TEXT("asset_move_list.csv"),
+		TEXT("CSV 파일 (*.csv)|*.csv"),
+		EFileDialogFlags::None,
+		OutFiles
+	);
+
+	if (OutFiles.Num() > 0)
+	{
+		FAssetCSVManager::ExportCSV(OutFiles[0], EntryList);
+	}
+	return FReply::Handled();
+}
+
+FReply SAssetMoverPanel::OnImportCSVClicked()
+{
+	IDesktopPlatform* DesktopPlatform = FDesktopPlatformModule::Get();
+	if (!DesktopPlatform) return FReply::Handled();
+
+	TArray<FString> OutFiles;
+	const void* ParentWindow = FSlateApplication::Get().FindBestParentWindowHandleForDialogs(nullptr);
+
+	DesktopPlatform->OpenFileDialog(
+		ParentWindow,
+		TEXT("CSV 파일 열기"),
+		FPaths::ProjectDir(),
+		TEXT(""),
+		TEXT("CSV 파일 (*.csv)|*.csv"),
+		EFileDialogFlags::None,
+		OutFiles
+	);
+
+	if (OutFiles.Num() > 0)
+	{
+		const int32 Updated = FAssetCSVManager::ImportCSV(OutFiles[0], EntryList);
+		if (Updated > 0)
+		{
+			bAssignmentDone = true;
+			// 내 담당이 아닌 항목 선택 해제
+			for (TSharedPtr<FAssetMoverEntry>& Entry : EntryList)
+			{
+				if (!IsEntryAssignedToMe(Entry))
+				{
+					Entry->bSelected = false;
+				}
+			}
+		}
+		// CSV에서 가져온 TargetPath를 덮어쓰지 않도록 너비만 업데이트
+		UpdateTableMinWidth();
+		RefreshList();
+	}
+	return FReply::Handled();
+}
+
+void SAssetMoverPanel::OnMaxWorkerCountCommitted(const FText& Text, ETextCommit::Type CommitType)
+{
+	const int32 Val = FCString::Atoi(*Text.ToString());
+	MaxWorkerCount = FMath::Clamp(Val, 1, 20);
+	if (MaxWorkerCountBox.IsValid())
+	{
+		MaxWorkerCountBox->SetText(FText::AsNumber(MaxWorkerCount));
+	}
+}
+
+void SAssetMoverPanel::OnMyAssigneeIndexCommitted(const FText& Text, ETextCommit::Type CommitType)
+{
+	// 1-based 입력 → 0-based 저장
+	const int32 Val = FCString::Atoi(*Text.ToString());
+	MyAssigneeIndex = FMath::Clamp(Val - 1, 0, 19);
+	if (MyAssigneeIndexBox.IsValid())
+	{
+		MyAssigneeIndexBox->SetText(FText::AsNumber(MyAssigneeIndex + 1));
+	}
+	// 번호 변경 시 배정 필터 재적용
+	if (bAssignmentDone)
+	{
+		for (TSharedPtr<FAssetMoverEntry>& Entry : EntryList)
+		{
+			Entry->bSelected = IsEntryAssignedToMe(Entry);
+		}
+		RefreshList();
+	}
 }
 
 FReply SAssetMoverPanel::OnUndoClicked()
@@ -597,12 +833,50 @@ ECheckBoxState SAssetMoverPanel::GetAssetCheckboxState(TSharedPtr<FAssetMoverEnt
 bool SAssetMoverPanel::CanMoveSelected() const
 {
 	if (bIsMoving || TargetFolder.IsEmpty()) return false;
-	return GetSelectedCount() > 0;
+	for (const TSharedPtr<FAssetMoverEntry>& Entry : EntryList)
+	{
+		if (Entry->bSelected
+			&& Entry->Status == EMoveStatus::Pending
+			&& IsEntryAssignedToMe(Entry))
+		{
+			return true;
+		}
+	}
+	return false;
 }
 
 bool SAssetMoverPanel::CanFixUpRedirectors() const
 {
-	return !bIsMoving && PendingRedirectorCount > 0;
+	return !bIsMoving && PendingRedirectorCount > 0 && bP4SubmitConfirmed;
+}
+
+bool SAssetMoverPanel::CanConfirmP4Submit() const
+{
+	return !bIsMoving && PendingRedirectorCount > 0 && !bP4SubmitConfirmed;
+}
+
+bool SAssetMoverPanel::CanAssignWorkers() const
+{
+	return !bIsMoving && EntryList.Num() > 0 && MaxWorkerCount > 0;
+}
+
+bool SAssetMoverPanel::CanExportCSV() const
+{
+	return EntryList.Num() > 0;
+}
+
+bool SAssetMoverPanel::IsEntryAssignedToMe(TSharedPtr<FAssetMoverEntry> Entry) const
+{
+	if (!Entry.IsValid()) return false;
+	if (!bAssignmentDone || Entry->AssigneeIndex < 0) return true;
+	return Entry->AssigneeIndex == MyAssigneeIndex;
+}
+
+FText SAssetMoverPanel::GetP4SubmitConfirmButtonText() const
+{
+	return bP4SubmitConfirmed
+		? LOCTEXT("P4SubmitConfirmed", "✔ Submit 완료됨")
+		: LOCTEXT("P4SubmitConfirm",   "P4 Submit 완료");
 }
 
 bool SAssetMoverPanel::CanCancelMove() const
@@ -772,6 +1046,28 @@ void SAssetMoverPanel::RecalculateTargetPaths()
 			Entry->TargetPath = TargetFolder / SubFolder / AssetName;
 		}
 	}
+
+	UpdateTableMinWidth();
+}
+
+void SAssetMoverPanel::UpdateTableMinWidth()
+{
+	// 최장 Target 경로 픽셀 폭 추정 (7px/char) → MinDesiredWidth 동적 계산
+	// 고정 열 합계: Checkbox(30) + Type(120) + Refs(90) + Deps(90) + Order(60) + Status(70) = 460
+	// Name(150) + Target + Reason(150) + Assignee(80)
+	float MaxTargetPx = 150.f;
+	for (const TSharedPtr<FAssetMoverEntry>& Entry : EntryList)
+	{
+		MaxTargetPx = FMath::Max(MaxTargetPx, Entry->TargetPath.Len() * 7.f);
+	}
+	MaxTargetPx = FMath::Min(MaxTargetPx, 600.f);
+
+	ComputedTableMinWidth = 460.f + 150.f + MaxTargetPx + 150.f + 80.f;
+
+	if (TableConstraintBox.IsValid())
+	{
+		TableConstraintBox->SetMinDesiredWidth(FOptionalSize(ComputedTableMinWidth));
+	}
 }
 
 void SAssetMoverPanel::BuildTableColumns(TSharedRef<SHeaderRow>& OutHeaderRow)
@@ -782,11 +1078,11 @@ void SAssetMoverPanel::BuildTableColumns(TSharedRef<SHeaderRow>& OutHeaderRow)
 		.FixedWidth(30.f)
 	);
 
-	// ManualWidth: 사용자 리사이즈 가능, FillWidth 제거로 가로 스크롤 정상 작동
+	// FillWidth: 창 크기에 맞게 늘어남, 가로 스크롤은 MinDesiredWidth로 제어
 	OutHeaderRow->AddColumn(
 		SHeaderRow::Column(SafeAssetMoverColumns::Name)
 		.DefaultLabel(LOCTEXT("ColName", "이름"))
-		.ManualWidth(200.f)
+		.FillWidth(1.f)
 		.SortMode(this, &SAssetMoverPanel::GetColumnSortMode, SafeAssetMoverColumns::Name)
 		.OnSort(this, &SAssetMoverPanel::OnSortColumnChanged)
 	);
@@ -844,6 +1140,22 @@ void SAssetMoverPanel::BuildTableColumns(TSharedRef<SHeaderRow>& OutHeaderRow)
 		.HAlignCell(HAlign_Left)
 		.HAlignHeader(HAlign_Left)
 	);
+
+	OutHeaderRow->AddColumn(
+		SHeaderRow::Column(SafeAssetMoverColumns::Reason)
+		.DefaultLabel(LOCTEXT("ColReason", "실패 사유"))
+		.ManualWidth(150.f)
+		.HAlignCell(HAlign_Left)
+		.HAlignHeader(HAlign_Left)
+	);
+
+	OutHeaderRow->AddColumn(
+		SHeaderRow::Column(SafeAssetMoverColumns::Assignee)
+		.DefaultLabel(LOCTEXT("ColAssignee", "담당자"))
+		.FixedWidth(80.f)
+		.HAlignCell(HAlign_Center)
+		.HAlignHeader(HAlign_Center)
+	);
 }
 
 TSharedRef<ITableRow> SAssetMoverPanel::GenerateAssetRow(
@@ -853,7 +1165,9 @@ TSharedRef<ITableRow> SAssetMoverPanel::GenerateAssetRow(
 	return SNew(SAssetTableRow, OwnerTable)
 		.Entry(Entry)
 		.IsChecked(this, &SAssetMoverPanel::GetAssetCheckboxState, Entry)
-		.OnCheckStateChanged(this, &SAssetMoverPanel::OnAssetCheckboxChanged, Entry);
+		.OnCheckStateChanged(this, &SAssetMoverPanel::OnAssetCheckboxChanged, Entry)
+		.bIsAssignedToMe(this, &SAssetMoverPanel::IsEntryAssignedToMe, Entry)
+		.OnTargetPathChanged(FSimpleDelegate::CreateSP(this, &SAssetMoverPanel::UpdateTableMinWidth));
 }
 
 void SAssetMoverPanel::OnAssetMovedCallback(const FAssetMoverEntry& Entry, bool bSuccess)
@@ -915,13 +1229,16 @@ void SAssetMoverPanel::OnUndoCompletedCallback(int32 RestoredCount)
 			|| Entry->Status == EMoveStatus::Failed
 			|| Entry->Status == EMoveStatus::LockedByOther)
 		{
-			Entry->Status    = EMoveStatus::Pending;
-			Entry->bSelected = true;
+			Entry->Status        = EMoveStatus::Pending;
+			Entry->bSelected     = true;
+			Entry->FailureReason = FString();
+			Entry->CheckedOutBy  = FString();
 		}
 	}
 
 	CreatedRedirectorPaths.Empty();
 	PendingRedirectorCount = 0;
+	bP4SubmitConfirmed = false;
 
 	ProgressValue = 0.f;
 	ProgressText  = FText::Format(

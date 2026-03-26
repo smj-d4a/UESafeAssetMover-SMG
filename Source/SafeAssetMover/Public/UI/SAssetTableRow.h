@@ -17,6 +17,8 @@ namespace SafeAssetMoverColumns
 	static const FName Order     = TEXT("MoveOrder");
 	static const FName Status    = TEXT("Status");
 	static const FName Target    = TEXT("Target");
+	static const FName Reason    = TEXT("Reason");
+	static const FName Assignee  = TEXT("Assignee");
 }
 
 /**
@@ -29,6 +31,8 @@ public:
 		SLATE_ARGUMENT(TSharedPtr<FAssetMoverEntry>, Entry)
 		SLATE_EVENT(FOnCheckStateChanged, OnCheckStateChanged)
 		SLATE_ATTRIBUTE(ECheckBoxState, IsChecked)
+		SLATE_ATTRIBUTE(bool, bIsAssignedToMe)
+		SLATE_EVENT(FSimpleDelegate, OnTargetPathChanged)
 	SLATE_END_ARGS()
 
 	void Construct(
@@ -42,6 +46,8 @@ private:
 	TSharedPtr<FAssetMoverEntry> Entry;
 	FOnCheckStateChanged OnCheckStateChanged;
 	TAttribute<ECheckBoxState> IsChecked;
+	TAttribute<bool> bIsAssignedToMe;
+	FSimpleDelegate OnTargetPathChanged;
 
 	// ── TAttribute 동적 바인딩 (Entry 상태 변경 시 자동 갱신) ──
 	FText       GetEntryStatusText()    const;
@@ -49,6 +55,11 @@ private:
 	FText       GetEntryTargetText()    const;
 	FSlateColor GetEntryNameColor()     const;
 	FText       GetEntryTargetTooltip() const;
+	FText       GetEntryReasonText()    const;
+	FText       GetEntryAssigneeText()  const;
+	FSlateColor GetRowForegroundColor() const;
+	bool        IsTargetReadOnly()      const;
+	void        OnTargetTextCommitted(const FText& NewText, ETextCommit::Type CommitType);
 
 	static FSlateColor GetCountColor(int32 Count);
 	static FSlateColor GetStatusColor(EMoveStatus Status);

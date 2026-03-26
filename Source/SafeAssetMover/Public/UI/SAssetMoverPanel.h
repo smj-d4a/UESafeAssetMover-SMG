@@ -42,6 +42,10 @@ private:
 	TSharedPtr<class SButton>          FixUpButton;
 	TSharedPtr<class SButton>          CancelButton;
 	TSharedPtr<class SButton>          UndoButton;
+	TSharedPtr<class SButton>          P4SubmitConfirmButton;
+	TSharedPtr<class SEditableTextBox> MaxWorkerCountBox;
+	TSharedPtr<class SEditableTextBox> MyAssigneeIndexBox;
+	TSharedPtr<class SBox>             TableConstraintBox;
 
 	// ── 상태 ──
 	FString SourceFolder;
@@ -51,9 +55,14 @@ private:
 	float ProgressValue              = 0.f;
 	FText ProgressText;
 	bool  bIsMoving                  = false;
+	bool  bP4SubmitConfirmed         = false;
+	bool  bAssignmentDone            = false;
+	int32 MaxWorkerCount             = 3;
+	int32 MyAssigneeIndex            = 0;  // 0-based
 	int32 PendingRedirectorCount     = 0;
 	TArray<FString> CreatedRedirectorPaths;
 	int32 TotalToMove                = 0;
+	float ComputedTableMinWidth      = 760.f;
 
 	// ── 이벤트 핸들러 ──
 	FReply OnScanClicked();
@@ -61,6 +70,12 @@ private:
 	FReply OnFixUpRedirectorsClicked();
 	FReply OnCancelClicked();
 	FReply OnUndoClicked();
+	FReply OnP4SubmitConfirmClicked();
+	FReply OnAssignWorkersClicked();
+	FReply OnExportCSVClicked();
+	FReply OnImportCSVClicked();
+	void   OnMaxWorkerCountCommitted(const FText& Text, ETextCommit::Type CommitType);
+	void   OnMyAssigneeIndexCommitted(const FText& Text, ETextCommit::Type CommitType);
 	FReply OnSelectAllClicked();
 	FReply OnDeselectAllClicked();
 	FReply OnBrowseSourceClicked();
@@ -78,6 +93,11 @@ private:
 	// ── 쿼리 ──
 	bool CanMoveSelected() const;
 	bool CanFixUpRedirectors() const;
+	bool CanConfirmP4Submit() const;
+	FText GetP4SubmitConfirmButtonText() const;
+	bool CanAssignWorkers() const;
+	bool CanExportCSV() const;
+	bool IsEntryAssignedToMe(TSharedPtr<FAssetMoverEntry> Entry) const;
 	bool CanCancelMove() const;
 	bool CanUndo() const;
 	int32 GetSelectedCount() const;
@@ -96,6 +116,7 @@ private:
 	void RefreshList();
 	void SortEntries();
 	void RecalculateTargetPaths();
+	void UpdateTableMinWidth();
 	void BuildTableColumns(TSharedRef<class SHeaderRow>& OutHeaderRow);
 	TSharedRef<ITableRow> GenerateAssetRow(
 		TSharedPtr<FAssetMoverEntry> Entry,

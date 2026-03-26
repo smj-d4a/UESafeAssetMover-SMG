@@ -1,0 +1,121 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1774425892993,
+  "projectRoot": "D:\\Github\\UESafeAssetMover",
+  "techStack": {
+    "languages": [],
+    "frameworks": [],
+    "packageManager": null,
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": null,
+    "testCommand": null,
+    "lintCommand": null,
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [],
+    "gitBranches": null
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "Source": {
+      "path": "Source",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1774425892968,
+      "keyFiles": []
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "Source\\SafeAssetMover\\Private\\UI\\SAssetMoverPanel.cpp",
+      "accessCount": 28,
+      "lastAccessed": 1774497944338,
+      "type": "file"
+    },
+    {
+      "path": "Source\\SafeAssetMover\\Private\\UI\\SAssetTableRow.cpp",
+      "accessCount": 21,
+      "lastAccessed": 1774497898020,
+      "type": "file"
+    },
+    {
+      "path": "Source\\SafeAssetMover\\Public\\UI\\SAssetTableRow.h",
+      "accessCount": 10,
+      "lastAccessed": 1774497845671,
+      "type": "file"
+    },
+    {
+      "path": "Source\\SafeAssetMover\\Public\\UI\\SAssetMoverPanel.h",
+      "accessCount": 10,
+      "lastAccessed": 1774497906463,
+      "type": "file"
+    },
+    {
+      "path": "Source\\SafeAssetMover\\Private\\AssetWorkloadDistributor.cpp",
+      "accessCount": 10,
+      "lastAccessed": 1774499286001,
+      "type": "file"
+    },
+    {
+      "path": "Source\\SafeAssetMover\\Private\\AssetMoveExecutor.cpp",
+      "accessCount": 5,
+      "lastAccessed": 1774426067058,
+      "type": "file"
+    },
+    {
+      "path": "Source\\SafeAssetMover\\Public\\AssetDependencyAnalyzer.h",
+      "accessCount": 3,
+      "lastAccessed": 1774496637884,
+      "type": "file"
+    },
+    {
+      "path": "Source\\SafeAssetMover\\SafeAssetMover.Build.cs",
+      "accessCount": 2,
+      "lastAccessed": 1774496627677,
+      "type": "file"
+    },
+    {
+      "path": "Source\\SafeAssetMover\\Public\\AssetCSVManager.h",
+      "accessCount": 1,
+      "lastAccessed": 1774496647088,
+      "type": "file"
+    },
+    {
+      "path": "Source\\SafeAssetMover\\Private\\AssetCSVManager.cpp",
+      "accessCount": 1,
+      "lastAccessed": 1774496665836,
+      "type": "file"
+    },
+    {
+      "path": "Source\\SafeAssetMover\\Public\\AssetWorkloadDistributor.h",
+      "accessCount": 1,
+      "lastAccessed": 1774496682917,
+      "type": "file"
+    },
+    {
+      "path": "Source\\SafeAssetMover",
+      "accessCount": 1,
+      "lastAccessed": 1774497952944,
+      "type": "directory"
+    },
+    {
+      "path": "Source\\SafeAssetMover\\Private\\AssetMoveScheduler.cpp",
+      "accessCount": 1,
+      "lastAccessed": 1774498541128,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}

@@ -1,7 +1,7 @@
 {
-  "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"cd \\\"D:/Github/UESafeAssetMover\\\" && git status && git log --oneline -10\"}",
-  "error": "Exit code 128\nfatal: not a git repository (or any of the parent directories): .git",
-  "timestamp": "2026-03-25T07:11:32.994Z",
+  "tool_name": "Read",
+  "tool_input_preview": "{\"file_path\":\"D:\\\\Github\\\\UESafeAssetMover\\\\Source\\\\SafeAssetMover\\\\Private\\\\UI\\\\SAssetMoverPanel.cpp\"}",
+  "error": "File content (10697 tokens) exceeds maximum allowed tokens (10000). Use offset and limit parameters to read specific portions of the file, or search for specific content instead of reading the whole file.",
+  "timestamp": "2026-03-25T08:05:07.575Z",
   "retry_count": 1
 }

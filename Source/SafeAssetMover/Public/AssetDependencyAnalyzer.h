@@ -50,6 +50,12 @@ struct FAssetMoverEntry
 
 	/** LockedByOther 상태일 때 Checkout 중인 P4 사용자 이름 */
 	FString CheckedOutBy;
+
+	/** 이동 실패 시 사유 (UI 표시용) */
+	FString FailureReason;
+
+	/** 담당 작업자 인덱스 (0-based). -1 = 미배정 (모두 이동 가능) */
+	int32 AssigneeIndex = -1;
 };
 
 /** 의존성 그래프 */

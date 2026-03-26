@@ -18,9 +18,13 @@ void SAssetTableRow::Construct(
 	const FArguments& InArgs,
 	const TSharedRef<STableViewBase>& InOwnerTableView)
 {
-	Entry = InArgs._Entry;
+	Entry               = InArgs._Entry;
 	OnCheckStateChanged = InArgs._OnCheckStateChanged;
-	IsChecked = InArgs._IsChecked;
+	IsChecked           = InArgs._IsChecked;
+	bIsAssignedToMe     = InArgs._bIsAssignedToMe.IsSet()
+	                        ? InArgs._bIsAssignedToMe
+	                        : TAttribute<bool>(true);
+	OnTargetPathChanged = InArgs._OnTargetPathChanged;
 
 	SMultiColumnTableRow<TSharedPtr<FAssetMoverEntry>>::Construct(
 		SMultiColumnTableRow<TSharedPtr<FAssetMoverEntry>>::FArguments(),
@@ -45,6 +49,7 @@ TSharedRef<SWidget> SAssetTableRow::GenerateWidgetForColumn(const FName& ColumnN
 				SNew(SCheckBox)
 				.IsChecked(IsChecked)
 				.OnCheckStateChanged(OnCheckStateChanged)
+				.IsEnabled(bIsAssignedToMe)
 			];
 	}
 
@@ -149,11 +154,37 @@ TSharedRef<SWidget> SAssetTableRow::GenerateWidgetForColumn(const FName& ColumnN
 			.Padding(4.f, 0.f)
 			.VAlign(VAlign_Center)
 			[
-				// SEditableText read-only: 경로 선택·복사 가능
+				// 내 담당 행: 직접 편집 가능 / 비담당 행: 읽기 전용
 				SNew(SEditableText)
-				.Text(this, &SAssetTableRow::GetEntryTargetText)
-				.IsReadOnly(true)
-				.ColorAndOpacity(FSlateColor(FLinearColor(0.6f, 0.9f, 0.6f)))
+				.Text(FText::FromString(Entry->TargetPath.IsEmpty() ? TEXT("-") : Entry->TargetPath))
+				.IsReadOnly(this, &SAssetTableRow::IsTargetReadOnly)
+				.OnTextCommitted(this, &SAssetTableRow::OnTargetTextCommitted)
+				.ColorAndOpacity(this, &SAssetTableRow::GetRowForegroundColor)
+			];
+	}
+
+	if (ColumnName == SafeAssetMoverColumns::Reason)
+	{
+		return SNew(SBox)
+			.Padding(4.f, 0.f)
+			.VAlign(VAlign_Center)
+			[
+				SNew(STextBlock)
+				.Text(this, &SAssetTableRow::GetEntryReasonText)
+				.ColorAndOpacity(this, &SAssetTableRow::GetRowForegroundColor)
+			];
+	}
+
+	if (ColumnName == SafeAssetMoverColumns::Assignee)
+	{
+		return SNew(SBox)
+			.HAlign(HAlign_Center)
+			.VAlign(VAlign_Center)
+			.Padding(4.f, 0.f)
+			[
+				SNew(STextBlock)
+				.Text(this, &SAssetTableRow::GetEntryAssigneeText)
+				.ColorAndOpacity(this, &SAssetTableRow::GetRowForegroundColor)
 			];
 	}
 
@@ -180,11 +211,56 @@ FText SAssetTableRow::GetEntryTargetText() const
 
 FSlateColor SAssetTableRow::GetEntryNameColor() const
 {
+	if (!bIsAssignedToMe.Get(true))
+	{
+		return FSlateColor(FLinearColor(0.35f, 0.35f, 0.35f));
+	}
 	if (Entry.IsValid() && Entry->bHasCyclicDep)
 	{
 		return FSlateColor(FLinearColor(0.9f, 0.5f, 0.1f));
 	}
 	return FSlateColor::UseForeground();
+}
+
+FSlateColor SAssetTableRow::GetRowForegroundColor() const
+{
+	return bIsAssignedToMe.Get(true)
+		? FSlateColor::UseForeground()
+		: FSlateColor(FLinearColor(0.35f, 0.35f, 0.35f));
+}
+
+FText SAssetTableRow::GetEntryAssigneeText() const
+{
+	if (!Entry.IsValid()) return FText::GetEmpty();
+	if (Entry->AssigneeIndex < 0)
+	{
+		return LOCTEXT("Unassigned", "-");
+	}
+	return FText::Format(LOCTEXT("AssigneeFmt", "작업자 {0}"), FText::AsNumber(Entry->AssigneeIndex + 1));
+}
+
+bool SAssetTableRow::IsTargetReadOnly() const
+{
+	// 배정이 완료된 경우 내 담당 행만 편집 허용
+	return !bIsAssignedToMe.Get(true);
+}
+
+void SAssetTableRow::OnTargetTextCommitted(const FText& NewText, ETextCommit::Type CommitType)
+{
+	if (!Entry.IsValid()) return;
+	if (CommitType == ETextCommit::OnCleared) return;
+
+	const FString NewPath = NewText.ToString();
+	if (NewPath == TEXT("-")) return; // placeholder — 편집 무시
+
+	Entry->TargetPath = NewPath;
+	OnTargetPathChanged.ExecuteIfBound();
+}
+
+FText SAssetTableRow::GetEntryReasonText() const
+{
+	if (!Entry.IsValid()) return FText::GetEmpty();
+	return FText::FromString(Entry->FailureReason);
 }
 
 FText SAssetTableRow::GetEntryTargetTooltip() const

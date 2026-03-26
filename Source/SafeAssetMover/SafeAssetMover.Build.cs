@@ -29,6 +29,7 @@ public class SafeAssetMover : ModuleRules
 			"EditorWidgets",
 			"EditorSubsystem",
 			"SourceControl",
+			"DesktopPlatform",
 		});
 	}
 }
