@@ -82,8 +82,8 @@
     },
     {
       "path": "Source\\SafeAssetMover\\Public\\AssetDependencyAnalyzer.h",
-      "accessCount": 3,
-      "lastAccessed": 1774496637884,
+      "accessCount": 4,
+      "lastAccessed": 1774519687956,
       "type": "file"
     },
     {
@@ -132,6 +132,24 @@
       "path": "Source\\SafeAssetMover\\Private\\AssetDependencyAnalyzer.cpp",
       "accessCount": 1,
       "lastAccessed": 1774503777674,
+      "type": "file"
+    },
+    {
+      "path": "SafeAssetMover.uplugin",
+      "accessCount": 1,
+      "lastAccessed": 1774519687454,
+      "type": "file"
+    },
+    {
+      "path": "Source\\SafeAssetMover\\Public\\AssetMoveExecutor.h",
+      "accessCount": 1,
+      "lastAccessed": 1774519688310,
+      "type": "file"
+    },
+    {
+      "path": "MANUAL.md",
+      "accessCount": 1,
+      "lastAccessed": 1774519784186,
       "type": "file"
     }
   ],
