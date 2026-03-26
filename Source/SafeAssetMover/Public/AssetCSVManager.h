@@ -26,7 +26,7 @@ public:
 	/**
 	 * CSV 파일에서 TargetPath 및 AssigneeIndex를 가져와
 	 * SourcePath로 기존 항목을 매칭하여 덮어씁니다.
-	 * @return 매칭·업데이트된 행 수
+	 * @return 매칭·업데이트된 행 수 (0 = 매칭 없음, -1 = 파일 읽기 실패)
 	 */
 	static int32 ImportCSV(
 		const FString& CSVFilePath,

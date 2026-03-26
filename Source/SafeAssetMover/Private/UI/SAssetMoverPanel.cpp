@@ -575,6 +575,13 @@ FReply SAssetMoverPanel::OnImportCSVClicked()
 
 	if (OutFiles.Num() > 0)
 	{
+		if (EntryList.Num() == 0)
+		{
+			FMessageDialog::Open(EAppMsgType::Ok,
+				LOCTEXT("ImportCSVNoScan", "에셋 목록이 비어 있습니다.\n먼저 '스캔' 버튼을 눌러 에셋을 불러온 후 CSV를 가져오세요."));
+			return FReply::Handled();
+		}
+
 		const int32 Updated = FAssetCSVManager::ImportCSV(OutFiles[0], EntryList);
 		if (Updated > 0)
 		{
@@ -587,6 +594,27 @@ FReply SAssetMoverPanel::OnImportCSVClicked()
 					Entry->bSelected = false;
 				}
 			}
+			FMessageDialog::Open(EAppMsgType::Ok,
+				FText::Format(LOCTEXT("ImportCSVSuccess", "CSV 가져오기 완료: {0}개 항목이 업데이트되었습니다."),
+					FText::AsNumber(Updated)));
+		}
+		else if (Updated == 0)
+		{
+			FMessageDialog::Open(EAppMsgType::Ok,
+				LOCTEXT("ImportCSVNoMatch",
+					"CSV를 가져왔지만 일치하는 에셋이 없습니다.\n"
+					"SourcePath가 현재 스캔된 에셋 경로와 일치하는지 확인하세요.\n"
+					"자세한 내용은 출력 로그(LogSafeAssetMover)를 확인하세요."));
+		}
+		else // Updated == -1: 파일 읽기 실패
+		{
+			FMessageDialog::Open(EAppMsgType::Ok,
+				FText::Format(
+					LOCTEXT("ImportCSVReadFail",
+						"CSV 파일을 열 수 없습니다:\n{0}\n\n"
+						"파일이 Excel 등 다른 프로그램에서 열려 있으면 닫고 다시 시도하세요."),
+					FText::FromString(OutFiles[0])));
+			return FReply::Handled();
 		}
 		// CSV에서 가져온 TargetPath를 덮어쓰지 않도록 너비만 업데이트
 		UpdateTableMinWidth();

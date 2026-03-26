@@ -40,8 +40,8 @@
   "hotPaths": [
     {
       "path": "Source\\SafeAssetMover\\Private\\UI\\SAssetMoverPanel.cpp",
-      "accessCount": 28,
-      "lastAccessed": 1774497944338,
+      "accessCount": 35,
+      "lastAccessed": 1774505696597,
       "type": "file"
     },
     {
@@ -69,6 +69,12 @@
       "type": "file"
     },
     {
+      "path": "Source\\SafeAssetMover\\Private\\AssetCSVManager.cpp",
+      "accessCount": 9,
+      "lastAccessed": 1774505682767,
+      "type": "file"
+    },
+    {
       "path": "Source\\SafeAssetMover\\Private\\AssetMoveExecutor.cpp",
       "accessCount": 5,
       "lastAccessed": 1774426067058,
@@ -81,21 +87,21 @@
       "type": "file"
     },
     {
+      "path": "Source\\SafeAssetMover\\Public\\AssetCSVManager.h",
+      "accessCount": 3,
+      "lastAccessed": 1774505706783,
+      "type": "file"
+    },
+    {
       "path": "Source\\SafeAssetMover\\SafeAssetMover.Build.cs",
       "accessCount": 2,
       "lastAccessed": 1774496627677,
       "type": "file"
     },
     {
-      "path": "Source\\SafeAssetMover\\Public\\AssetCSVManager.h",
-      "accessCount": 1,
-      "lastAccessed": 1774496647088,
-      "type": "file"
-    },
-    {
-      "path": "Source\\SafeAssetMover\\Private\\AssetCSVManager.cpp",
-      "accessCount": 1,
-      "lastAccessed": 1774496665836,
+      "path": "Source\\SafeAssetMover\\Private\\UI\\SafeAssetMoverWindow.cpp",
+      "accessCount": 2,
+      "lastAccessed": 1774503411499,
       "type": "file"
     },
     {
@@ -114,6 +120,18 @@
       "path": "Source\\SafeAssetMover\\Private\\AssetMoveScheduler.cpp",
       "accessCount": 1,
       "lastAccessed": 1774498541128,
+      "type": "file"
+    },
+    {
+      "path": "Source\\SafeAssetMover\\Private\\SafeAssetMoverModule.cpp",
+      "accessCount": 1,
+      "lastAccessed": 1774503364894,
+      "type": "file"
+    },
+    {
+      "path": "Source\\SafeAssetMover\\Private\\AssetDependencyAnalyzer.cpp",
+      "accessCount": 1,
+      "lastAccessed": 1774503777674,
       "type": "file"
     }
   ],

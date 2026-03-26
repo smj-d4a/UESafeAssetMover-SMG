@@ -20,7 +20,8 @@ void FSafeAssetMoverWindow::Register()
 	)
 	.SetDisplayName(LOCTEXT("TabTitle", "Safe Asset Mover"))
 	.SetTooltipText(LOCTEXT("TabTooltip", "의존성 순서로 안전하게 에셋을 이동합니다"))
-	.SetIcon(FSlateIcon(FAppStyle::GetAppStyleSetName(), "ContentBrowser.AssetActions.Move"));
+	.SetIcon(FSlateIcon(FAppStyle::GetAppStyleSetName(), "ContentBrowser.AssetActions.Move"))
+	.SetMenuType(ETabSpawnerMenuType::Hidden); // Tools 메뉴에서 수동 등록하므로 Window 메뉴 자동 등록 억제
 }
 
 void FSafeAssetMoverWindow::Unregister()

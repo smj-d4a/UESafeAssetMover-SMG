@@ -3,6 +3,8 @@
 #include "AssetCSVManager.h"
 #include "AssetDependencyAnalyzer.h"
 #include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
+#include "HAL/FileManager.h"
 
 #define LOCTEXT_NAMESPACE "FAssetCSVManager"
 
@@ -53,11 +55,32 @@ int32 FAssetCSVManager::ImportCSV(
 	const FString& CSVFilePath,
 	TArray<TSharedPtr<FAssetMoverEntry>>& Entries)
 {
-	FString Content;
-	if (!FFileHelper::LoadFileToString(Content, *CSVFilePath))
+	// 경로 정규화 (슬래시 통일)
+	FString NormalizedPath = CSVFilePath;
+	FPaths::NormalizeFilename(NormalizedPath);
+
+	UE_LOG(LogSafeAssetMover, Log,
+		TEXT("[CSV] 파일 열기 시도: %s"), *NormalizedPath);
+
+	if (!IFileManager::Get().FileExists(*NormalizedPath))
 	{
 		UE_LOG(LogSafeAssetMover, Warning,
-			TEXT("[CSV] 파일 읽기 실패: %s"), *CSVFilePath);
+			TEXT("[CSV] 파일이 존재하지 않음: %s"), *NormalizedPath);
+		return -1;
+	}
+
+	FString Content;
+	if (!FFileHelper::LoadFileToString(Content, *NormalizedPath))
+	{
+		UE_LOG(LogSafeAssetMover, Warning,
+			TEXT("[CSV] 파일 읽기 실패 (잠금 또는 권한 문제일 수 있음): %s"), *NormalizedPath);
+		return -1;
+	}
+
+	if (Entries.Num() == 0)
+	{
+		UE_LOG(LogSafeAssetMover, Warning,
+			TEXT("[CSV] 가져오기 실패: 에셋 목록이 비어 있습니다. 먼저 스캔을 실행하세요."));
 		return 0;
 	}
 
@@ -70,6 +93,9 @@ int32 FAssetCSVManager::ImportCSV(
 			PathMap.Add(Entry->SourcePath, Entry);
 		}
 	}
+
+	UE_LOG(LogSafeAssetMover, Log,
+		TEXT("[CSV] 가져오기 시작: 파일=%s, 에셋=%d개"), *CSVFilePath, Entries.Num());
 
 	TArray<FString> Lines;
 	Content.ParseIntoArrayLines(Lines, /*bCullEmpty=*/true);
@@ -87,8 +113,8 @@ int32 FAssetCSVManager::ImportCSV(
 		Line.ParseIntoArray(Cols, TEXT(","), /*bCullEmpty=*/false);
 		if (Cols.Num() < 2) continue;
 
-		FString SrcPath = Cols[0].TrimStartAndEnd().TrimChar('"');
-		FString TgtPath = Cols[1].TrimStartAndEnd().TrimChar('"');
+		FString SrcPath = Cols[0].TrimStartAndEnd().TrimQuotes();
+		FString TgtPath = Cols[1].TrimStartAndEnd().TrimQuotes();
 		const int32 AssigneeIdx = (Cols.Num() >= 3)
 			? FCString::Atoi(*Cols[2].TrimStartAndEnd())
 			: -1;
@@ -98,6 +124,13 @@ int32 FAssetCSVManager::ImportCSV(
 			(*Found)->TargetPath    = TgtPath;
 			(*Found)->AssigneeIndex = AssigneeIdx;
 			++UpdatedCount;
+			UE_LOG(LogSafeAssetMover, Verbose,
+				TEXT("[CSV]   매칭 성공: %s → %s (담당자: %d)"), *SrcPath, *TgtPath, AssigneeIdx);
+		}
+		else
+		{
+			UE_LOG(LogSafeAssetMover, Warning,
+				TEXT("[CSV]   매칭 실패: '%s' (에셋 목록에 없음)"), *SrcPath);
 		}
 	}
 
